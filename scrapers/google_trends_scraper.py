@@ -18,6 +18,9 @@ except ImportError:
 
 from config import config
 
+# 인메모리 캐시: (keyword, timeframe, geo) → data
+_trends_cache: dict[tuple, list[dict]] = {}
+
 
 def fetch_keyword_interest(
     keywords: list[str],
@@ -31,26 +34,70 @@ def fetch_keyword_interest(
     if not PYTRENDS_AVAILABLE:
         return _simulate_keyword_interest(keywords, timeframe)
 
+    # 캐시 히트 확인
+    results = {}
+    uncached = []
+    for kw in keywords:
+        key = (kw, timeframe, geo)
+        if key in _trends_cache:
+            results[kw] = _trends_cache[key]
+        else:
+            uncached.append(kw)
+
+    if not uncached:
+        return results
+
     try:
         pytrends = TrendReq(hl="en-US", tz=360, timeout=(10, 25))
         # pytrends는 한 번에 최대 5개 키워드
-        results = {}
-        for i in range(0, len(keywords), 5):
-            batch = keywords[i:i + 5]
-            pytrends.build_payload(batch, timeframe=timeframe, geo=geo)
-            df = pytrends.interest_over_time()
-            if df is not None and not df.empty:
-                for kw in batch:
-                    if kw in df.columns:
-                        results[kw] = [
-                            {"timestamp": str(ts), "value": int(val)}
-                            for ts, val in df[kw].items()
-                        ]
-            time.sleep(1.0)  # Rate limit 방지
+        for i in range(0, len(uncached), 5):
+            batch = uncached[i:i + 5]
+            batch_data = _fetch_batch_with_retry(pytrends, batch, timeframe, geo)
+            for kw, data in batch_data.items():
+                _trends_cache[(kw, timeframe, geo)] = data
+                results[kw] = data
+            if i + 5 < len(uncached):
+                time.sleep(5.0)  # 배치 간 충분한 대기
         return results
     except Exception as e:
         print(f"[Google Trends Error] {e}")
-        return _simulate_keyword_interest(keywords, timeframe)
+        sim = _simulate_keyword_interest(uncached, timeframe)
+        results.update(sim)
+        return results
+
+
+def _fetch_batch_with_retry(
+    pytrends,
+    batch: list[str],
+    timeframe: str,
+    geo: str,
+    max_retries: int = 4,
+) -> dict[str, list[dict]]:
+    """429 에러 시 지수 백오프로 재시도"""
+    delay = 10  # 초기 대기(초)
+    for attempt in range(max_retries):
+        try:
+            pytrends.build_payload(batch, timeframe=timeframe, geo=geo)
+            df = pytrends.interest_over_time()
+            if df is None or df.empty:
+                return {}
+            return {
+                kw: [
+                    {"timestamp": str(ts), "value": int(val)}
+                    for ts, val in df[kw].items()
+                ]
+                for kw in batch if kw in df.columns
+            }
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str and attempt < max_retries - 1:
+                print(f"[Google Trends 429] {delay}초 대기 후 재시도 ({attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                delay *= 2
+            else:
+                print(f"[Google Trends Error] {e}")
+                return _simulate_keyword_interest(batch, timeframe)
+    return _simulate_keyword_interest(batch, timeframe)
 
 
 def detect_24h_spike(
@@ -61,17 +108,19 @@ def detect_24h_spike(
     """
     24시간 급등 감지
     spike_ratio > threshold이면 급등으로 판단
+    7d 데이터 한 번만 요청해서 24h + 기준선 모두 추출 (캐시 재활용)
     """
-    # 24시간 데이터
-    data_24h = fetch_keyword_interest([keyword], timeframe="now 1-d", geo=geo)
-    # 7일 기준선 데이터
+    # 7d 데이터 하나로 24h 최근 구간과 기준선 모두 추출
     data_7d = fetch_keyword_interest([keyword], timeframe="now 7-d", geo=geo)
 
-    if keyword not in data_24h or keyword not in data_7d:
+    if keyword not in data_7d:
         return {"keyword": keyword, "is_spike": False, "spike_ratio": 0}
 
-    recent_values = [d["value"] for d in data_24h[keyword][-12:]]  # 최근 12시간
-    baseline_values = [d["value"] for d in data_7d[keyword][:-48]]  # 7일 기준 (최근 48h 제외)
+    all_values = data_7d[keyword]
+    # 7d = 약 168포인트, 마지막 ~24포인트가 최근 24h
+    recent_cutoff = max(1, len(all_values) - 24)
+    recent_values = [d["value"] for d in all_values[recent_cutoff:]]
+    baseline_values = [d["value"] for d in all_values[:recent_cutoff - 24]]  # 최근 48h 제외
 
     if not recent_values or not baseline_values:
         return {"keyword": keyword, "is_spike": False, "spike_ratio": 0}
