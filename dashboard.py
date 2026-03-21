@@ -108,6 +108,7 @@ class Dashboard:
         table.add_column("배송", style="blue", width=6, justify="center")
         table.add_column("등급", style="bold", width=5, justify="center")
         table.add_column("시그널", width=12)
+        table.add_column("상품 링크", style="dim blue", min_width=20)
 
         for i, item in enumerate(products, 1):
             product = item["product"]
@@ -139,6 +140,8 @@ class Dashboard:
             grade_colors = {"S": "bold red", "A": "bold yellow", "B": "green", "C": "cyan", "D": "dim"}
             grade_style = grade_colors.get(viral_grade, "white")
 
+            product_url = product.get("product_url", "")
+
             table.add_row(
                 str(i),
                 product.get("title", "")[:38],
@@ -151,6 +154,7 @@ class Dashboard:
                 f"{shipping_days}일",
                 Text(viral_grade, style=grade_style),
                 signal_text,
+                product_url,
             )
 
         console.print(table)
@@ -229,6 +233,7 @@ class Dashboard:
             total = scores.get("total_score", 0)
             margin = pricing.get("margin_pct", 0)
             ship_days = product.get("shipping_days", 0)
+            url = product.get("product_url", "")
 
             signals = []
             if scores.get("is_24h_spike"):
@@ -238,5 +243,7 @@ class Dashboard:
             signal_text = " ".join(signals) if signals else "-"
 
             print(f"{i:<3} {title:<40} {total:>5.1f} {margin:>5.0f}% {ship_days:>4}일 {signal_text:<15}")
+            if url:
+                print(f"     🔗 {url}")
 
         print(f"{'='*80}\n")
