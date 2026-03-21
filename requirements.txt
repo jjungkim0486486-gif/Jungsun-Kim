@@ -1,0 +1,26 @@
+# Product Radar - 의존성 패키지
+# pip install -r requirements.txt
+
+# HTTP 요청
+requests>=2.31.0
+
+# Google Trends (선택사항 - 없어도 시뮬레이션 모드로 동작)
+pytrends>=4.9.2
+
+# 터미널 대시보드 (선택사항 - 없어도 plain 텍스트로 동작)
+rich>=13.7.0
+
+# 데이터 처리 (선택사항 - 고급 분석용)
+pandas>=2.1.0
+
+# 스케줄러 (선택사항 - --schedule 모드 사용 시)
+apscheduler>=3.10.4
+
+# 환경변수 관리
+python-dotenv>=1.0.0
+
+# HTTP 재시도 로직
+urllib3>=2.1.0
+
+# 비동기 처리 (선택사항 - 성능 향상용)
+aiohttp>=3.9.0
