@@ -19,6 +19,9 @@ apscheduler>=3.10.4
 # 환경변수 관리
 python-dotenv>=1.0.0
 
+# 웹 대시보드
+flask>=3.0.0
+
 # HTTP 재시도 로직
 urllib3>=2.1.0
 
